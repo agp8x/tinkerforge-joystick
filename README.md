@@ -13,6 +13,3 @@ Using Tinkerforge hardware to emulate a virtual joystick for Windows, by using S
 6. start _joystick-server.py_ using python3
 7. done
 
-## Notes
-
-The script takes too long to run, so input is sometimes delayed and log is spammed with warnings
