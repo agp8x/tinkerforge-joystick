@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-  
 import socketserver
 
+DEV = False
+
 LISTEN = ("localhost", 1337)
 HOST = "localhost"
 PORT = 4223
@@ -9,10 +11,11 @@ UIDlin = "bx1"
 UIDrot = "jdJ"
 UIDio4 = "h4p"
 
-from tinkerforge.ip_connection import IPConnection
-from tinkerforge.bricklet_linear_poti import LinearPoti
-from tinkerforge.bricklet_rotary_encoder import RotaryEncoder
-from tinkerforge.bricklet_io4 import IO4
+if not DEV:
+	from tinkerforge.ip_connection import IPConnection
+	from tinkerforge.bricklet_linear_poti import LinearPoti
+	from tinkerforge.bricklet_rotary_encoder import RotaryEncoder
+	from tinkerforge.bricklet_io4 import IO4
 
 def io4_decode_value_bin(value):
 	values={
@@ -63,6 +66,7 @@ def cb_rotre():
 def cb_interrupt(interrupt_mask, value_mask):
 	global new_values
 	new = io4_decode_value_bin(value_mask)
+	#make sure a pressed button always makes its way to the client
 	for i,x in enumerate(new):
 		if not values[2][i+1] and x:
 			values[2][i+1] = True
@@ -73,49 +77,61 @@ def cb_interrupt(interrupt_mask, value_mask):
 def served():
 	global values
 	for i,x in enumerate(new_values):
-		if x:
-			values[2][i] = 1
-		else:
-			values[2][i] = 0
+		values[2][i] = 1 if x else 0
+def handle_set(data):
+	data=data.strip().split(':')[1]
+	name, value= data.split('=')
+	device, port = name.split('_')
+	port=int(port)
+	value=int(value)
+	#validate to keep hardware safe
+	if device == "io4":
+		if port == 3:
+			if DEV:
+				print("set",device,port,"to",value)
+			else:
+				io.set_value(8*value)
 
-class TfServer(socketserver.BaseRequestHandler):
+class TfServer(socketserver.StreamRequestHandler):
 	def handle(self):
 		global values
-		self.data = self.request.recv(1024).strip()
+		self.data = self.rfile.readline().strip().decode("utf-8")
 		#if self.data == "get":
 		self.request.sendall(bytes(str(values), "utf-8"))
+		self.data = self.rfile.readline().decode("utf-8").strip()
+		handle_set(self.data)
 		served()
 
 if __name__ == "__main__":
-	ipcon = IPConnection()
-	poti = LinearPoti(UIDlin, ipcon)
-	encoder = RotaryEncoder(UIDrot, ipcon)
-	io = IO4(UIDio4, ipcon)
-
-	ipcon.connect(HOST, PORT)
-
-	poti.set_position_callback_period(50)
-	encoder.set_count_callback_period(50)
-
-	io.set_configuration(15, 'i', True)
-	io.set_interrupt(15)
-	
-	values[0] = encoder.get_count(False)
-	values[1] = poti.get_position()
-	values[2] = [not encoder.is_pressed()] + io4_decode_value_bin(io.get_value())
-	
-
-	poti.register_callback(poti.CALLBACK_POSITION, cb_lin)
-	encoder.register_callback(encoder.CALLBACK_COUNT, cb_rot)
-	encoder.register_callback(encoder.CALLBACK_PRESSED, cb_rotpr)
-	encoder.register_callback(encoder.CALLBACK_RELEASED, cb_rotre)
-	io.register_callback(io.CALLBACK_INTERRUPT, cb_interrupt)
-
+	if not DEV:
+		ipcon = IPConnection()
+		poti = LinearPoti(UIDlin, ipcon)
+		encoder = RotaryEncoder(UIDrot, ipcon)
+		io = IO4(UIDio4, ipcon)
+		#connect
+		ipcon.connect(HOST, PORT)
+		#setup
+		poti.set_position_callback_period(50)
+		encoder.set_count_callback_period(50)
+		io.set_configuration(7, 'i', True)
+		io.set_configuration(8, 'o', False)
+		io.set_interrupt(7)
+		poti.register_callback(poti.CALLBACK_POSITION, cb_lin)
+		encoder.register_callback(encoder.CALLBACK_COUNT, cb_rot)
+		encoder.register_callback(encoder.CALLBACK_PRESSED, cb_rotpr)
+		encoder.register_callback(encoder.CALLBACK_RELEASED, cb_rotre)
+		io.register_callback(io.CALLBACK_INTERRUPT, cb_interrupt)
+		#initial values
+		values[0] = encoder.get_count(False)
+		values[1] = poti.get_position()
+		values[2] = [not encoder.is_pressed()] + io4_decode_value_bin(io.get_value())
 	server = socketserver.TCPServer(LISTEN, TfServer)
+	server.allow_reuse_address = True
 	try:
 		server.serve_forever()
 	except KeyboardInterrupt:
 		print("Exit gracefully")
-	#input('Press key to exit\n') # Use input() in Python 3
-	ipcon.disconnect()
+	if not DEV:
+		ipcon.disconnect()
 	print("done")
+
