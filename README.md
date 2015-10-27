@@ -1,7 +1,7 @@
 tinkerforge-joystick
 ====================
 
-Using Tinkerforge hardware to emulate a virtual joystick for Windows, by using SimScript ( https://code.google.com/p/fscode/wiki/SimScript ) 
+Using Tinkerforge hardware to emulate a virtual joystick for Windows, by using SimScript ( https://github.com/nmeier/simscript/wiki ) 
 
 ## Installation
 
